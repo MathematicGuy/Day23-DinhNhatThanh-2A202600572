@@ -1,6 +1,6 @@
 {
-  "generated_at": "16:09:15Z",
-  "span_export": true,
+  "generated_at": "16:44:10Z",
+  "span_export": false,
   "agent_slis": {
     "tasks": 3,
     "success_rate": 0.667,

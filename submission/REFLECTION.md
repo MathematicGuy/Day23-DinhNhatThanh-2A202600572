@@ -168,3 +168,7 @@ The continuous profiling indicates two key areas of optimization:
 1. **Caching / Pre-computing prompt digests**: Instead of computing sha256 hashes on every single inference request, we can cache the digest of frequently observed prompt prefixes or lengths.
 2. **Asynchronous non-blocking events**: Replace the synchronous `time.sleep()` blocks with non-blocking `await asyncio.sleep()` to prevent blocking the single-threaded asyncio event loop under concurrent load, improving overall throughput.
 
+## 9. LLM-Native Observability — Bonus Track (B2)
+
+### LLM-native signal missed by RED-only monitoring
+RED-only monitoring (Rate, Error, Duration) completely misses token consumption and token cost breakdown (e.g., input vs. output token distribution and actual USD cost), which are critical for financial controls in production LLM applications. Additionally, RED monitoring cannot capture internal prompt/response content or structured tool-calling details, making it impossible to analyze why a model hallucinated, which specific tools were invoked, or whether there was prompt injection.

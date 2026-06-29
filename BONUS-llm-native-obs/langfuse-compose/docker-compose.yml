@@ -23,6 +23,14 @@ services:
       SALT: dev-salt
       NEXTAUTH_URL: http://localhost:3300
       PORT: 3000
+      LANGFUSE_INIT_ORG_ID: aicb-org
+      LANGFUSE_INIT_ORG_NAME: AICB
+      LANGFUSE_INIT_PROJECT_ID: day23-lab
+      LANGFUSE_INIT_PROJECT_NAME: Day23-Lab
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-day23-lab-public-key
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-day23-lab-secret-key
+      LANGFUSE_INIT_USER_EMAIL: admin@example.com
+      LANGFUSE_INIT_USER_PASSWORD: admin-password
     ports:
       - "127.0.0.1:3300:3000"
     networks:

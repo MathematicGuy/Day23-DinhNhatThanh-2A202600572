@@ -40,7 +40,7 @@ Grader runs `make verify` from a clean clone. Exit code 0 = all core checkpoints
 | # | Bonus | Pts | Checkpoint | Done |
 |---|---|---|---|---|
 | B1 | BONUS-ebpf-profiling | +10 | Pyroscope flame graph for `day23-app` Python process (Linux/WSL only) | [x] |
-| B2 | BONUS-llm-native-obs | +10 | Langfuse self-hosted, capture 1 LangChain LLM trace | [ ] |
+| B2 | BONUS-llm-native-obs | +10 | Langfuse self-hosted, capture 1 LangChain LLM trace | [x] |
 | B3 | BONUS-agentops | +10 | `agentops-report.json` + Jaeger span-tree screenshot (`day23-agent`) **+** one extension (instrument your own agent / SLIs→Grafana / new failure mode / `--real-llm`); REFLECTION on pass^k vs pass@k | [x] |
 
 ---

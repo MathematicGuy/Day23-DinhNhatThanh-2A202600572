@@ -19,8 +19,21 @@ Span export is best-effort: if the Collector is down, SLIs are still computed.
 from __future__ import annotations
 import argparse, json, os, sys, time
 
+try:
+    from prometheus_client import Gauge, start_http_server
+    PROMETHEUS_SUPPORT = True
+except ImportError:
+    PROMETHEUS_SUPPORT = False
+
 OTLP = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 PRICE_PER_1K = 0.0005  # mock $/1k tokens for cost-per-task
+
+if PROMETHEUS_SUPPORT:
+    AGENT_SUCCESS_RATE = Gauge("agent_success_rate", "Agent task success rate")
+    AGENT_AVG_STEPS = Gauge("agent_avg_steps_per_task", "Agent average steps per task")
+    AGENT_TOOL_ERROR_RATE = Gauge("agent_tool_error_rate", "Agent tool error rate")
+    AGENT_COST_PER_TASK = Gauge("agent_cost_per_task_usd", "Agent average cost per task in USD")
+    AGENT_LOOPS_DETECTED = Gauge("agent_loops_detected", "Total loops detected in agent trajectories")
 
 # ---- mock tools (deterministic; echo the Day-3 e-commerce agent) -----------
 def tool_search(q):    return {"items": ["SKU-1", "SKU-2"], "tokens": 40}
@@ -122,39 +135,80 @@ def main():
     ap = argparse.ArgumentParser(description="AgentOps harness (deck §14/§19)")
     ap.add_argument("--out", default="agentops-report.json")
     ap.add_argument("--real-llm", action="store_true", help="(stub) use OPENAI_API_KEY policy instead of mock plans")
+    ap.add_argument("--serve", action="store_true", help="run continuously as a Prometheus metrics exporter on port 9104")
     args = ap.parse_args()
     if args.real_llm and not os.environ.get("OPENAI_API_KEY"):
         print("--real-llm needs OPENAI_API_KEY (free/local OK); falling back to mock.", file=sys.stderr)
 
-    tracer, prov = make_tracer()
-    tasks = [run_task(t, tracer) for t in TASKS]
-    if prov:
-        prov.force_flush(); prov.shutdown()
+    if args.serve:
+        if not PROMETHEUS_SUPPORT:
+            print("Error: prometheus_client not installed, cannot use --serve", file=sys.stderr)
+            sys.exit(1)
+        start_http_server(9104)
+        print("AgentOps exporter listening on port 9104...")
+        
+        tracer, prov = make_tracer()
+        while True:
+            try:
+                tasks = [run_task(t, tracer) for t in TASKS]
+                n = len(tasks)
+                success_rate = round(sum(t["success"] for t in tasks) / n, 3)
+                avg_steps = round(sum(t["steps"] for t in tasks) / n, 2)
+                tool_error_rate = round(sum(t["tool_errors"] for t in tasks) / max(sum(t["tool_calls"] for t in tasks), 1), 3)
+                cost_per_task = round(sum(t["cost_usd"] for t in tasks) / n, 6)
+                loops_detected = sum(t["looped"] for t in tasks)
 
-    n = len(tasks)
-    agg = {
-        "tasks": n,
-        "success_rate": round(sum(t["success"] for t in tasks) / n, 3),
-        "avg_steps_per_task": round(sum(t["steps"] for t in tasks) / n, 2),
-        "tool_error_rate": round(sum(t["tool_errors"] for t in tasks) /
-                                 max(sum(t["tool_calls"] for t in tasks), 1), 3),
-        "cost_per_task_usd": round(sum(t["cost_usd"] for t in tasks) / n, 6),
-        "loops_detected": sum(t["looped"] for t in tasks),
-    }
-    report = {"generated_at": time.strftime("%H:%M:%SZ", time.gmtime()),
-              "span_export": bool(prov), "agent_slis": agg, "per_task": tasks}
-    with open(args.out, "w") as f:
-        json.dump(report, f, indent=2)
+                AGENT_SUCCESS_RATE.set(success_rate)
+                AGENT_AVG_STEPS.set(avg_steps)
+                AGENT_TOOL_ERROR_RATE.set(tool_error_rate)
+                AGENT_COST_PER_TASK.set(cost_per_task)
+                AGENT_LOOPS_DETECTED.set(loops_detected)
 
-    print(f"\n=== AgentOps report ({n} tasks) ===")
-    for k, v in agg.items():
-        print(f"  {k:22} {v}")
-    print("\n  per-task failure modes:")
-    for t in tasks:
-        print(f"    - {t['goal'][:30]:32} success={t['success']!s:5} modes={t['failure_modes']}")
-    if prov:
-        print("\n  Spans exported to Jaeger -> open http://localhost:16686 (service: day23-agent)")
-    print(f"\nWrote {args.out}")
+                agg = {
+                    "tasks": n,
+                    "success_rate": success_rate,
+                    "avg_steps_per_task": avg_steps,
+                    "tool_error_rate": tool_error_rate,
+                    "cost_per_task_usd": cost_per_task,
+                    "loops_detected": loops_detected,
+                }
+                report = {"generated_at": time.strftime("%H:%M:%SZ", time.gmtime()),
+                          "span_export": bool(prov), "agent_slis": agg, "per_task": tasks}
+                with open(args.out, "w") as f:
+                    json.dump(report, f, indent=2)
+            except Exception as e:
+                print(f"Error running tasks in loop: {e}", file=sys.stderr)
+            time.sleep(10)
+    else:
+        tracer, prov = make_tracer()
+        tasks = [run_task(t, tracer) for t in TASKS]
+        if prov:
+            prov.force_flush(); prov.shutdown()
+
+        n = len(tasks)
+        agg = {
+            "tasks": n,
+            "success_rate": round(sum(t["success"] for t in tasks) / n, 3),
+            "avg_steps_per_task": round(sum(t["steps"] for t in tasks) / n, 2),
+            "tool_error_rate": round(sum(t["tool_errors"] for t in tasks) /
+                                     max(sum(t["tool_calls"] for t in tasks), 1), 3),
+            "cost_per_task_usd": round(sum(t["cost_usd"] for t in tasks) / n, 6),
+            "loops_detected": sum(t["looped"] for t in tasks),
+        }
+        report = {"generated_at": time.strftime("%H:%M:%SZ", time.gmtime()),
+                  "span_export": bool(prov), "agent_slis": agg, "per_task": tasks}
+        with open(args.out, "w") as f:
+            json.dump(report, f, indent=2)
+
+        print(f"\n=== AgentOps report ({n} tasks) ===")
+        for k, v in agg.items():
+            print(f"  {k:22} {v}")
+        print("\n  per-task failure modes:")
+        for t in tasks:
+            print(f"    - {t['goal'][:30]:32} success={t['success']!s:5} modes={t['failure_modes']}")
+        if prov:
+            print("\n  Spans exported to Jaeger -> open http://localhost:16686 (service: day23-agent)")
+        print(f"\nWrote {args.out}")
 
 
 if __name__ == "__main__":

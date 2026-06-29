@@ -48,6 +48,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks: [obs]
 
   alertmanager:
@@ -56,9 +58,17 @@ services:
     ports:
       - "127.0.0.1:9093:9093"
     volumes:
-      - ./02-prometheus-grafana/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./02-prometheus-grafana/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml.tmpl:ro
     environment:
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/REPLACE/ME}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        while IFS= read -r line || [ -n "$$line" ]; do
+          echo "$${line//\{\{ env * \}\}/$$SLACK_WEBHOOK_URL}"
+        done < /etc/alertmanager/alertmanager.yml.tmpl > /tmp/alertmanager.yml
+        exec /bin/alertmanager --config.file=/tmp/alertmanager.yml --storage.path=/alertmanager
     networks: [obs]
 
   grafana:

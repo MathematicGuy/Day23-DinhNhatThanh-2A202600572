@@ -11,6 +11,9 @@
 
 SHELL := /bin/bash
 COMPOSE ?= docker compose
+ROOT_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
+PYTHON := $(shell [ -f $(ROOT_DIR)/.venv/bin/python3 ] && echo $(ROOT_DIR)/.venv/bin/python3 || echo python3)
+LOCUST := $(shell [ -f $(ROOT_DIR)/.venv/bin/locust ] && echo $(ROOT_DIR)/.venv/bin/locust || echo locust)
 
 .PHONY: help setup up down restart logs smoke load alert trace drift demo verify clean lint-dashboards
 
@@ -21,7 +24,7 @@ setup: ## one-time install + .env scaffold
 	@test -f .env || cp .env.example .env
 	@python3 -m pip install -q -r requirements.txt || echo '  (pip: use a venv; see README Python 3.12/3.13 note)'
 	@bash 00-setup/pull-images.sh
-	@python3 00-setup/verify-docker.py
+	@$(PYTHON) 00-setup/verify-docker.py
 
 up: ## start the stack
 	$(COMPOSE) up -d
@@ -40,15 +43,24 @@ smoke: ## health-check all 7 services
 	@curl -fsS http://localhost:8000/healthz   > /dev/null && echo "  app:           OK"
 	@curl -fsS http://localhost:9090/-/healthy > /dev/null && echo "  prometheus:    OK"
 	@curl -fsS http://localhost:9093/-/healthy > /dev/null && echo "  alertmanager:  OK"
-	@curl -fsS http://localhost:3000/api/health | grep -q '"database":"ok"' && echo "  grafana:       OK"
-	@curl -fsS http://localhost:3100/ready     > /dev/null && echo "  loki:          OK"
+	@curl -fsS http://localhost:3000/api/health | grep -q '"database"[[:space:]]*:[[:space:]]*"ok"' && echo "  grafana:       OK"
+	@for i in {1..30}; do \
+	  if curl -fsS http://localhost:3100/ready > /dev/null 2>&1; then \
+	    echo "  loki:          OK"; \
+	    break; \
+	  fi; \
+	  if [ $$i -eq 30 ]; then \
+	    curl -fsS http://localhost:3100/ready > /dev/null && echo "  loki:          OK"; \
+	  fi; \
+	  sleep 1; \
+	done
 	@curl -fsS http://localhost:16686/         > /dev/null && echo "  jaeger:        OK"
 	@curl -fsS http://localhost:8888/metrics   > /dev/null && echo "  otel-collector: OK"
 	@echo "Stack healthy."
 
 load: ## run baseline locust load (concurrency=10, 60s)
 	cd 02-prometheus-grafana/load-test && \
-	  locust -f locustfile.py --headless -u 10 -r 2 -t 60s --host http://localhost:8000
+	  $(LOCUST) -f locustfile.py --headless -u 10 -r 2 -t 60s --host http://localhost:8000
 
 alert: ## trigger an alert by killing the app, wait, then restore
 	bash scripts/trigger-alert.sh
@@ -56,13 +68,13 @@ alert: ## trigger an alert by killing the app, wait, then restore
 trace: ## generate one traced request and print its trace_id
 	@curl -sS -X POST http://localhost:8000/predict \
 	  -H 'Content-Type: application/json' \
-	  -d '{"prompt":"hello"}' | python3 -c 'import json,sys; d=json.load(sys.stdin); print("trace_id:",d.get("trace_id","?"))'
+	  -d '{"prompt":"hello"}' | $(PYTHON) -c 'import json,sys; d=json.load(sys.stdin); print("trace_id:",d.get("trace_id","?"))'
 
 drift: ## run drift detection notebook (cli mode)
-	cd 04-drift-detection && python3 scripts/drift_detect.py
+	cd 04-drift-detection && $(PYTHON) scripts/drift_detect.py
 
 agentops: ## (bonus B3) instrument a mock agent: OTel spans + agent SLIs (deck §14/§19)
-	python3 BONUS-agentops/agent_run.py
+	$(PYTHON) BONUS-agentops/agent_run.py
 
 demo: ## end-to-end demo (load -> alert -> trace -> drift)
 	$(MAKE) load
@@ -71,10 +83,10 @@ demo: ## end-to-end demo (load -> alert -> trace -> drift)
 	$(MAKE) drift
 
 verify: ## rubric gate — exits 0 only if all checkpoints pass
-	python3 scripts/verify.py
+	$(PYTHON) scripts/verify.py
 
 lint-dashboards: ## validate Grafana dashboard JSONs
-	python3 scripts/lint-dashboards.py 02-prometheus-grafana/grafana/dashboards/*.json
+	$(PYTHON) scripts/lint-dashboards.py 02-prometheus-grafana/grafana/dashboards/*.json
 
 clean: ## stop stack + remove volumes (DESTRUCTIVE)
 	$(COMPOSE) down -v

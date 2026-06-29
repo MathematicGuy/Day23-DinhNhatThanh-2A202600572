@@ -1,0 +1,10 @@
+discovery.process "all" { }
+
+pyroscope.ebpf "default" {
+  forward_to = [pyroscope.write.local.receiver]
+  targets    = discovery.process.all.targets
+}
+
+pyroscope.write "local" {
+  endpoint { url = "http://pyroscope:4040" }
+}

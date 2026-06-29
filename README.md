@@ -10,6 +10,7 @@ You will:
 
 - Instrument a FastAPI service with **metrics + traces + logs** (RED + USE + AI-specific)
 - Build **3 Grafana dashboards** (overview / SLO burn-rate / cost & tokens)
+
 - Wire **2 multi-window multi-burn-rate alerts** → Slack
 - Configure **tail-sampling** in OTel Collector (keep all errors + 1% healthy)
 - Run **drift detection** (PSI / KL / KS) on a synthetic shifted dataset
